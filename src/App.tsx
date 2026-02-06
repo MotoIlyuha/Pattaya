@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 // Данные о часовых поясах
 const timezones = {
@@ -44,6 +44,117 @@ const passengers = [
 ];
 
 // Сегменты маршрута
+const WISH_EMOJIS = ['❤️', '🫶', '😎', '👍', '😀'] as const;
+
+// Варианты надписей на кнопке (меняются по нажатию)
+const WISH_BUTTON_LABELS: Array<{ main: string}> = [
+  { main: 'Пожелать нам мягкой посадки ✈️'}, { main: 'Счастливого путешествия 🌞' },
+  { main: 'Пожелать лёгкого пути 🧳'}, {main: 'Удачной поездки ✨' },
+];
+
+// Плавающая кнопка пожеланий + летающие "Спасибо"
+function WishButton() {
+  const [count, setCount] = useState(0);
+  const [labelIndex, setLabelIndex] = useState(0);
+  const [countVisible, setCountVisible] = useState(false);
+  const [bubbles, setBubbles] = useState<Array<{ id: number; emoji: string; xDrift: number; startX: number; delay: number }>>([]);
+  const nextId = useRef(0);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const labels = WISH_BUTTON_LABELS[labelIndex % WISH_BUTTON_LABELS.length];
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  const handlePointerDown = () => {
+    clearHoldTimer();
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      setCountVisible((v) => !v);
+    }, 5000);
+  };
+
+  const handlePointerUp = () => clearHoldTimer();
+  const handlePointerLeave = () => clearHoldTimer();
+
+  const handleClick = () => {
+    setCount((c) => c + 1);
+    setLabelIndex((i) => i + 1);
+    const bubble = {
+      id: nextId.current++,
+      emoji: WISH_EMOJIS[Math.floor(Math.random() * WISH_EMOJIS.length)],
+      xDrift: (Math.random() - 0.5) * 140,
+      startX: (Math.random() - 0.5) * 80,
+      delay: 0,
+    };
+    setBubbles((prev) => [...prev, bubble]);
+    const idToRemove = bubble.id;
+    setTimeout(() => {
+      setBubbles((prev) => prev.filter((b) => b.id !== idToRemove));
+    }, 2600);
+  };
+
+  return (
+    <>
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-0 h-0">
+        {bubbles.map((b) => (
+          <div
+            key={b.id}
+            className="pointer-events-none absolute bottom-0 text-lg font-semibold text-slate-600 whitespace-nowrap flex items-center gap-1"
+            style={{
+              left: `calc(50% + ${b.startX}px)`,
+              '--x-drift': `${b.xDrift}px`,
+              animation: 'flyThank 2.2s ease-out forwards',
+              animationDelay: `${b.delay}ms`,
+              opacity: 0.9,
+            } as React.CSSProperties}
+          >
+            <span className="inline-block opacity-90">Спасибо</span>
+            <span className="inline-block text-xl">{b.emoji}</span>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={handleClick}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onPointerCancel={handlePointerUp}
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-white font-semibold shadow-lg hover:shadow-xl hover:scale-105 active:scale-100 transition-all pointer-events-auto border-2 border-amber-300/50"
+      >
+        <span className="block sm:inline">{labels.main}</span>
+        <span className="block sm:inline text-sm opacity-90 mt-0.5">{labels.sub}</span>
+        {countVisible && count > 0 && (
+          <span className="absolute -top-2 -right-2 min-w-[22px] h-[22px] rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center">
+            {count}
+          </span>
+        )}
+      </button>
+
+      <style>{`
+        @keyframes flyThank {
+          0% {
+            transform: translate(-50%, 0);
+            opacity: 0;
+          }
+          10% {
+            opacity: 0.9;
+          }
+          100% {
+            transform: translate(calc(-50% + var(--x-drift, 0px)), -200px);
+            opacity: 0;
+          }
+        }
+      `}</style>
+    </>
+  );
+}
+
 const segments = [
   {
     id: 1,
@@ -334,7 +445,7 @@ function SegmentCard({ segment, index }: { segment: typeof segments[0]; index: n
                 </div>
               </div>
               <div className="mt-2 text-2xl">
-                {isOutbound ? '→' : '←'}
+                →
               </div>
             </div>
 
@@ -414,6 +525,8 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-zinc-100">
+      {/* Плавающая кнопка пожеланий */}
+      <WishButton />
       {/* World Clocks Sticky Header */}
       <WorldClocks />
 
