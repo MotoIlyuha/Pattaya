@@ -175,7 +175,7 @@ const segments = [
       timezone: 'moscow',
     },
     duration: '3 ч 43 мин',
-    waitTime: '~7 дней 12 ч (до самолёта)',
+    waitTime: null as string | null, // считается ниже по arrival/next.departure
     direction: 'outbound',
   },
   {
@@ -197,7 +197,7 @@ const segments = [
       timezone: 'uae',
     },
     duration: '5 ч 40 мин',
-    waitTime: '14 ч 45 мин',
+    waitTime: null as string | null,
     direction: 'outbound',
   },
   {
@@ -219,7 +219,7 @@ const segments = [
       timezone: 'thailand',
     },
     duration: '6 ч 15 мин',
-    waitTime: '13 дней 10 ч 45 мин',
+    waitTime: null as string | null,
     waitLabel: '🏝️ Отдых в Таиланде',
     direction: 'outbound',
   },
@@ -242,7 +242,7 @@ const segments = [
       timezone: 'uae',
     },
     duration: '7 ч 00 мин',
-    waitTime: '10 ч 50 мин',
+    waitTime: null as string | null,
     direction: 'return',
   },
   {
@@ -334,6 +334,45 @@ function convertToMoscow(time: string, date: string, fromTimezone: string): stri
   return `${newHours}:${newMinutes} (${newDay}.${newMonth})`;
 }
 
+/** Локальное время в поясе (date DD.MM.YYYY, time HH:mm) → UTC ms */
+function getUtcMs(dateStr: string, timeStr: string, offsetHours: number): number {
+  const [d, m, y] = dateStr.split('.').map(Number);
+  const [h, min] = timeStr.split(':').map(Number);
+  const utcDate = new Date(Date.UTC(y, m - 1, d, h, min, 0, 0));
+  return utcDate.getTime() - offsetHours * 3600000;
+}
+
+/** Ожидание между прибытием и следующим отправлением (с учётом поясов) */
+function formatWaitTime(
+  arrival: { time: string; date: string; timezone: string },
+  departure: { time: string; date: string; timezone: string }
+): string {
+  const arrTz = timezones[arrival.timezone as keyof typeof timezones];
+  const depTz = timezones[departure.timezone as keyof typeof timezones];
+  const arrMs = getUtcMs(arrival.date, arrival.time, arrTz.offset);
+  const depMs = getUtcMs(departure.date, departure.time, depTz.offset);
+  const diffMs = depMs - arrMs;
+  if (diffMs <= 0) return '0 мин';
+  const totalMin = Math.floor(diffMs / 60000);
+  const days = Math.floor(totalMin / (24 * 60));
+  const restMin = totalMin % (24 * 60);
+  const hours = Math.floor(restMin / 60);
+  const minutes = restMin % 60;
+  const parts: string[] = [];
+  if (days > 0) {
+    const word =
+      days % 10 === 1 && days % 100 !== 11
+        ? 'день'
+        : days % 10 >= 2 && days % 10 <= 4 && (days % 100 < 10 || days % 100 >= 20)
+          ? 'дня'
+          : 'дней';
+    parts.push(`${days} ${word}`);
+  }
+  if (hours > 0) parts.push(`${hours} ч`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes} мин`);
+  return parts.join(' ');
+}
+
 function WorldClocks() {
   const [times, setTimes] = useState<Record<string, Date>>({});
 
@@ -379,11 +418,20 @@ function WorldClocks() {
   );
 }
 
-function SegmentCard({ segment, index }: { segment: typeof segments[0]; index: number }) {
+function SegmentCard({
+  segment,
+  index,
+  computedWaitTime,
+}: {
+  segment: typeof segments[0];
+  index: number;
+  computedWaitTime?: string | null;
+}) {
   const isOutbound = segment.direction === 'outbound';
   const isTrain = segment.type === 'train';
   const depTz = timezones[segment.departure.timezone as keyof typeof timezones];
   const arrTz = timezones[segment.arrival.timezone as keyof typeof timezones];
+  const displayWaitTime = computedWaitTime ?? segment.waitTime;
 
   return (
     <div className="relative">
@@ -496,7 +544,7 @@ function SegmentCard({ segment, index }: { segment: typeof segments[0]; index: n
       </div>
 
       {/* Wait time */}
-      {segment.waitTime && (
+      {displayWaitTime && (
         <div className="ml-8 my-4 pl-6 border-l-2 border-dashed border-gray-300">
           <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm ${
             segment.waitLabel ? 'bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700' : 'bg-gray-100 text-gray-600'
@@ -504,12 +552,12 @@ function SegmentCard({ segment, index }: { segment: typeof segments[0]; index: n
             {segment.waitLabel ? (
               <>
                 <span>{segment.waitLabel}</span>
-                <span className="font-bold">{segment.waitTime}</span>
+                <span className="font-bold">{displayWaitTime}</span>
               </>
             ) : (
               <>
                 <span>⏳ Ожидание:</span>
-                <span className="font-bold">{segment.waitTime}</span>
+                <span className="font-bold">{displayWaitTime}</span>
               </>
             )}
           </div>
@@ -539,7 +587,16 @@ export function App() {
           </h2>
           <div className="space-y-6">
             {outboundSegments.map((segment, idx) => (
-              <SegmentCard key={segment.id} segment={segment} index={idx} />
+              <SegmentCard
+                key={segment.id}
+                segment={segment}
+                index={idx}
+                computedWaitTime={
+                  idx < outboundSegments.length - 1
+                    ? formatWaitTime(segment.arrival, outboundSegments[idx + 1].departure)
+                    : null
+                }
+              />
             ))}
           </div>
         </div>
@@ -564,7 +621,16 @@ export function App() {
           </h2>
           <div className="space-y-6">
             {returnSegments.map((segment, idx) => (
-              <SegmentCard key={segment.id} segment={segment} index={idx} />
+              <SegmentCard
+                key={segment.id}
+                segment={segment}
+                index={idx}
+                computedWaitTime={
+                  idx < returnSegments.length - 1
+                    ? formatWaitTime(segment.arrival, returnSegments[idx + 1].departure)
+                    : null
+                }
+              />
             ))}
           </div>
         </div>
